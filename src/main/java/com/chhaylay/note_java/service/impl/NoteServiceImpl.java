@@ -3,11 +3,14 @@ package com.chhaylay.note_java.service.impl;
 import com.chhaylay.note_java.dto.NoteDto;
 import com.chhaylay.note_java.exception.ResourceNotFoundException;
 import com.chhaylay.note_java.model.Note;
+import com.chhaylay.note_java.model.User;
 import com.chhaylay.note_java.repository.NoteRepository;
+import com.chhaylay.note_java.security.UserPrincipal;
 import com.chhaylay.note_java.service.NoteService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,7 +23,8 @@ public class NoteServiceImpl implements NoteService {
     @Override
     @Transactional(readOnly = true)
     public Page<NoteDto.ResponseAll> getAllNotes(Pageable pageable) {
-        return noteRepository.findAll(pageable)
+        Long userId = getCurrentUserId();
+        return noteRepository.findAllByUserId(userId, pageable)
                 .map(note -> new NoteDto.ResponseAll(
                     note.getId(),
                     note.getTitle(),
@@ -32,7 +36,8 @@ public class NoteServiceImpl implements NoteService {
     @Override
     @Transactional(readOnly = true)
     public NoteDto.ResponseDetail getNoteById(Long id) {
-        Note note = noteRepository.findById(id)
+        Long userId = getCurrentUserId();
+        Note note = noteRepository.findByIdAndUserId(id, userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Target Note..."));
         
         return mapToResponseDetail(note);
@@ -41,9 +46,11 @@ public class NoteServiceImpl implements NoteService {
     @Override
     @Transactional
     public NoteDto.ResponseDetail createNote(NoteDto.Request request) {
+        Long userId = getCurrentUserId();
         Note note = Note.builder()
                 .title(request.getTitle())
                 .content(request.getContent())
+                .user(User.builder().id(userId).build())
                 .build();
 
         return mapToResponseDetail(noteRepository.save(note));
@@ -52,7 +59,8 @@ public class NoteServiceImpl implements NoteService {
     @Override
     @Transactional
     public NoteDto.ResponseDetail updateNote(Long id, NoteDto.Request request) {
-        Note note = noteRepository.findById(id)
+        Long userId = getCurrentUserId();
+        Note note = noteRepository.findByIdAndUserId(id, userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Target Note entity with ID [" + id + "] does not exist."));
         
         note.setTitle(request.getTitle());
@@ -63,13 +71,18 @@ public class NoteServiceImpl implements NoteService {
     @Override
     @Transactional
     public void deleteNote(Long id) {
-        if (!noteRepository.existsById(id)) {
-            throw new ResourceNotFoundException("Target Note entity with ID [" + id + "] does not exist.");
-        }
-        noteRepository.deleteById(id);
+        Long userId = getCurrentUserId();
+        Note note = noteRepository.findByIdAndUserId(id, userId)
+                .orElseThrow(() -> new ResourceNotFoundException("Target Note entity with ID [" + id + "] does not exist."));
+        
+        noteRepository.delete(note);
     }
 
-    // High performance explicit mapper method
+    private Long getCurrentUserId() {
+        UserPrincipal principal = (UserPrincipal) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+        return principal.getId();
+    }
+
     private NoteDto.ResponseDetail mapToResponseDetail(Note note) {
         return new NoteDto.ResponseDetail(
             note.getId(),
